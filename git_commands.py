@@ -1,8 +1,24 @@
 import subprocess
 import asyncio
-REPO_PATH='c:/users/davec/gitwork/Robot2023/'
-
+import configparser
+import os.path
 log_pane = None
+REPO_PATH=None
+CONFIG_FILE= "gozer.ini"
+
+config=configparser.ConfigParser()
+config.read(CONFIG_FILE)
+path_to_try=config['DEFAULT']['repo_path']
+
+if not path_to_try:
+    raise ValueError("Can't find gozer.ini.sample. expecting it alongside the source in the git project")
+
+if not os.path.exists(path_to_try):
+    raise ValueError("Path '{s}' Does not appear to be valid in gozer.ini.sample".format(s=path_to_try))
+
+REPO_PATH = path_to_try
+print("Repository Path: ", REPO_PATH)
+
 
 def set_log_pane(d):
    global log_pane
@@ -59,3 +75,5 @@ async def run_command(command: str) -> None:
         output = new.decode()
         # NOTE the content of the markdown element is replaced every time we have new output
         log_pane.push(output)
+
+BRANCH_LIST=list_branches()

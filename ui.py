@@ -1,13 +1,12 @@
-from nicegui import ui,run,app
-import git_commands
+import platform
+from nicegui import ui, run, app
 from datetime import datetime
+import git_commands
 
 class AppKeys:
     BUILD_HIST="builds"
 
 ui.colors(primary='#367049')
-
-BRANCH_LIST=git_commands.list_branches()
 
 if AppKeys.BUILD_HIST not in app.storage.general:
     app.storage.general[AppKeys.BUILD_HIST] = {}
@@ -60,6 +59,7 @@ async def build_ref(ref_to_build: str) -> None:
     git_hash = git_commands.run_checkout(ref_to_build)
     if git_hash is not None:
         log_pane.push("Running Gradle Build...")
+        await git_commands.run_command('gradlew build')
         add_build({
             "id": git_hash,
             "branch": ref_to_build,
@@ -80,16 +80,14 @@ with ui.row().classes('w-full no-wrap'):
             user_ref = ui.input('Enter Ref').props('clearable')
        with ui.card().classes('w-60  bg-gray-100'):
             ui.button('Build Branch', on_click=lambda: build_ref(user_selected_ref.value))
-            user_selected_ref = ui.select(git_commands.list_branches(),value="main")
+            user_selected_ref = ui.select(git_commands.BRANCH_LIST,value="main")
     with ui.column().classes('w-2/3  bg-gray-100'):
         build_history()
 
 with ui.card().classes('w-full'):
-
     ui.label('Logs').classes('w-full').style('font-color:black font-size: 80%; font-weight: bold')
     log_pane = ui.log(max_lines=500).classes('w-full h-40').style('font-sise: 80%')
     git_commands.set_log_pane(log_pane)
     ui.button('Clear Log', on_click=lambda: log_pane.clear())
 
-#ui.run(host="127.0.0.1", port=8081,reload=platform.system() != 'Windows')
-ui.run(host="127.0.0.1", port=8081,reload=True)
+ui.run(host="127.0.0.1", port=8081,show=False,reload=platform.system() != 'Windows')
