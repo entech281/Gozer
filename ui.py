@@ -46,22 +46,26 @@ def build_history() -> None:
     for gozer_build in get_saved_builds():
         with BuildCard(gozer_build["id"]).classes('w-[600px] bg-gray-100 no-shadow border-[2px]') as card:
             with ui.row().classes():
+                if gozer_build["success"] == True:
+                    icon = 'check_circle'
+                    label_color = 'text-green-700'
+                    button_label = 'Rebuild'
+                    icon_color = 'green-700'
+                else:
+                    icon = 'highlight_off'
+                    button_label = 'Retry'
+                    icon_color = 'red-700'
+                    label_color = 'text-red-700'
+                with ui.column().classes('w-12') :
+                    ui.icon(icon,color=icon_color).classes('text-5xl')
                 with ui.column():
                     msg = 'from {branch} on {date}'.format(branch=gozer_build["branch"], date=gozer_build["date_built"])
-                    label_color = 'text-green-900'
-                    if gozer_build["success"]==True:
-                        label_color = 'text-green-900'
-                        button_label = 'Rebuild'
-                    else:
-                        button_label = 'Retry'
-                        label_color = 'text-red-900'
-
-                    ui.label(gozer_build["id"]).classes('w-64 '+label_color).style('font-size: 200%; font-weight: bold')
-                    ui.label(msg).classes('w-64 text-gray-600').style('font-size: 120%; font-weight: bold')
-                with ui.column().classes():
-                    with ui.row().classes('w-64 '):
-                        ui.button(button_label, on_click=lambda id=gozer_build["id"]: build_ref(card.build_id))
-                        ui.button("Delete ", on_click=lambda c=card: c.delete_card() ,color='red')
+                    ui.label(gozer_build["id"]).classes(label_color + ' text-gray-500').style('font-size: 200%; font-weight: bold')
+                    ui.label(msg).classes('text-gray-600').style('font-size: 120%; font-weight: bold')
+                with ui.column().classes('w-64 no-wrap'):
+                   with ui.row().classes():
+                        ui.button(button_label, on_click=lambda id=gozer_build["id"]: build_ref(card.build_id),icon='refresh')
+                        ui.button("Delete ", on_click=lambda c=card: c.delete_card() ,color='red',icon="dangerous")
 
 
 async def build_ref(ref_to_build: str) -> None:
@@ -80,17 +84,18 @@ async def build_ref(ref_to_build: str) -> None:
 
 
 with ui.row().classes('w-full'):
+    ui.image('gozer_image.png').classes('w-32')
     ui.label('Gozer the Deployer! v1.0').classes('text-green-800').style('font-size: 400%; font-weight: 200 color: #367049')
     ui.separator()
 with ui.row().classes('w-full no-wrap'):
     with ui.column().classes('w-1/3'):
        with ui.card().classes('w-60  bg-gray-100'):
-            ui.button('Deploy Main', on_click=lambda: build_ref('main'))
+            ui.button('Deploy Main', on_click=lambda: build_ref('main'),icon="download")
        with ui.card().classes('w-60  bg-gray-100'):
-            ui.button('Deploy Custom Ref', on_click=lambda: build_ref(user_ref.value))
+            ui.button('Deploy Custom Ref', on_click=lambda: build_ref(user_ref.value),icon="download")
             user_ref = ui.input('Enter Ref').props('clearable')
        with ui.card().classes('w-60  bg-gray-100'):
-            ui.button('Deploy Branch', on_click=lambda: build_ref(user_selected_ref.value))
+            ui.button('Deploy Branch', on_click=lambda: build_ref(user_selected_ref.value),icon="download")
             user_selected_ref = ui.select(git_commands.BRANCH_LIST,value="main")
     with ui.column().classes('w-2/3 '):
         build_history()
@@ -99,7 +104,7 @@ with ui.card().classes('w-full'):
     ui.label('Logs').classes('w-full').classes('text-green-800').style(' font-weight: bold')
     log_pane = ui.log(max_lines=500).classes('w-full h-40').style('font-size: 80%')
     git_commands.set_log_pane(log_pane)
-    ui.button('Clear Log', on_click=lambda: log_pane.clear())
+    ui.button('Clear Log', on_click=lambda: log_pane.clear(),icon="clear")
 
 root = logging.getLogger()
 root.setLevel(logging.DEBUG)
