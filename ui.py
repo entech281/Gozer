@@ -81,7 +81,7 @@ async def build_ref(ref_to_build: str) -> None:
         })
         log_pane.push("Deploy {ref} [SUCCESS]".format(ref=ref_to_build))
     else:
-        ui.notify("Problem! {p}".format(p=result.message), type='negative', close_button="DANGIT" )
+        ui.notify("Problem! {p}".format(p=result.message), type='negative', close_button="CLOSE" )
         log_pane.push("Deploy {ref} [FAILED]".format(ref=ref_to_build))
 
 
