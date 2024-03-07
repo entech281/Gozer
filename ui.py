@@ -70,17 +70,19 @@ def build_history() -> None:
 
 async def build_ref(ref_to_build: str) -> None:
     log_pane.clear()
-    git_hash = git_commands.run_checkout(ref_to_build)
-    if git_hash is not None:
 
-        success = await git_commands.run_deploy()
+    result = await git_commands.run_deploy(ref_to_build)
+    if result.success:
         add_build({
-            "id": git_hash,
+            "id": result.hash,
             "branch": ref_to_build,
             "date_built": nice_date(datetime.now()),
-            "success": success
+            "success": True
         })
-        log_pane.push("DONE")
+        log_pane.push("Deploy {ref} [SUCCESS]".format(ref=ref_to_build))
+    else:
+        ui.notify("Problem! {p}".format(p=result.message), type='negative', close_button="DANGIT" )
+        log_pane.push("Deploy {ref} [FAILED]".format(ref=ref_to_build))
 
 
 with ui.row().classes('w-full'):
@@ -102,7 +104,7 @@ with ui.row().classes('w-full no-wrap'):
 
 with ui.card().classes('w-full'):
     ui.label('Logs').classes('w-full').classes('text-green-800').style(' font-weight: bold')
-    log_pane = ui.log(max_lines=500).classes('w-full h-40').style('font-size: 80%')
+    log_pane = ui.log(max_lines=1000).classes('w-full h-40').style('font-size: 80%')
     git_commands.set_log_pane(log_pane)
     ui.button('Clear Log', on_click=lambda: log_pane.clear(),icon="clear")
 
@@ -113,4 +115,4 @@ handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 root.addHandler(handler)
-ui.run(host="127.0.0.1", port=8081,show=False,reload=platform.system() != 'Windows')
+ui.run(host="0.0.0.0", port=8081,show=False,reload=platform.system() != 'Windows')
