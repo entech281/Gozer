@@ -8,12 +8,12 @@ from dataclasses import dataclass
 log_pane = None
 REPO_PATH=None
 BRANCH_LIST=[]
-DEBUG_ON=False
-ROBORIO_IP="10.2.81.16"
+DEBUG_ON=True
+ROBORIO_IP="10.2.81.2"
 GITEA_IP="10.2.81.10"
 
-CONFIG_FILE= "gozer.ini"
-
+CONFIG_FILE= os.path.abspath(os.path.join(".","gozer.ini"))
+print("Using config file path:",CONFIG_FILE)
 config=configparser.ConfigParser()
 config.read(CONFIG_FILE)
 path_to_try=config['DEFAULT']['repo_path']
@@ -27,7 +27,7 @@ if not os.path.exists(path_to_try):
 REPO_PATH = path_to_try
 DEPLOY_ENABLED = (config['DEFAULT']['enable_deploy'].lower() in ['true', '1', 't', 'y', 'yes'])
 
-
+print("RepositoryPath=",REPO_PATH)
 @dataclass
 class RunResult:
     success: bool
@@ -42,36 +42,41 @@ def set_log_pane(d):
    log_pane = d
 
 def info_message(message):
-    log_pane.push(message)
+    if log_pane is not None:
+       log_pane.push(message)
     logging.info(message)
 
 def debug_message(message):
-    if DEBUG_ON:
+    if DEBUG_ON and log_pane is not None:
         log_pane.push('[DEBUG] ' + message)
     logging.debug(message)
 
 def update_branches():
     global BRANCH_LIST
     BRANCH_LIST = list_branches()
+    print("Loaded Branches,",BRANCH_LIST)
 
 def list_branches() -> list:
-    branch_list_result=subprocess.run("git branch -l --format '%(refname)'", cwd=REPO_PATH, capture_output=True,shell=True,check=False)
-    if branch_list_result.returncode == 0:
-        bl = branch_list_result.stdout.decode().split()
-        bl_without_stuff = []
-        for b in bl:
-            v = b.replace('refs/heads/','')
-            bl_without_stuff.append(v)
-        return bl_without_stuff
-    else:
-        return []
+    r = _short_command("Listing Branches",["git","branch","-l","--format","%(refname)"])
+    if r.returncode !=  0:
+        logging.error("Could not list branches! %s" % str(r))
+        raise ValueError("Cant List Branches!")
+
+    bl = r.stdout.decode().split()
+    bl_without_stuff = []
+    for b in bl:
+       v = b.replace('refs/heads/','')
+       bl_without_stuff.append(v)
+    return bl_without_stuff
+
 
 async def run_deploy(ref:str) -> RunResult:
-    def gradle_command(command)-> str:
-        return  os.path.join(".", "gradlew --offline ") + command
 
-    def ping_command(ip_addr:str) -> str:
-        return "ping -c 2 -W 1 " + ip_addr
+    def gradle_command(command)-> str:
+        return  os.path.join(".", "gradlew --offline ")+ command
+
+    def ping_command(ip_addr:str) -> list:
+        return ["ping","-c","2","-W","1",ip_addr ]
 
     r = _short_command("Check For Roborio ", ping_command(ROBORIO_IP) )
     if r.returncode != 0:
@@ -81,17 +86,17 @@ async def run_deploy(ref:str) -> RunResult:
     if r.returncode != 0:
         return RunResult(success=False,message="Could not find Gitea. Is the programmer field kit connected?",hash="<none>")
 
-    r = _short_command("Fetch Remote", 'git fetch --all')
+    r = _short_command("Fetch Remote", ['git','fetch','--all'])
     if r.returncode != 0:
         return RunResult(success=False,message="Couldnt Pull from Gitea. Is the repo cloned right?",hash="<none>" )
 
     update_branches()
 
-    r = _short_command("Checking out ref {ref}".format(ref=ref), 'git checkout -f {ref}'.format(ref=ref))
+    r = _short_command("Checking out ref {ref}".format(ref=ref), ['git','checkout','-f',ref])
     if r.returncode != 0:
         return RunResult(success=False,message="Couldnt check out that ref. Is it valid??" ,hash="<none>")
 
-    r = _short_command(("Getting ref for this branch"),'git rev-parse --short HEAD')
+    r = _short_command(("Getting ref for this branch"),['git','rev-parse','--short','HEAD'])
     if r.returncode != 0:
         return RunResult(success=False,message="Inexplicably, couldnt compute hash for this ref?" ,hash="<none>")
     else:
@@ -116,11 +121,12 @@ async def run_deploy(ref:str) -> RunResult:
         return RunResult(success=True,message="Built, but did not deploy ref {ref}".format(ref=ref),hash=git_hash)
 
 
-def _short_command(friendly_name: str, command: str) -> subprocess.CompletedProcess:
+def _short_command(friendly_name: str, command: list) -> subprocess.CompletedProcess:
     "Runs a command and returns is output in a single shot. used for quick commands"
 
-    debug_message("Running command: '{c}'".format(c=command))
-    r = subprocess.run(command, cwd=REPO_PATH, capture_output=True, shell=True, check=False)
+    debug_message("Running command: '{c}'".format(c=str(command)))
+    print("Workding directory for command is",REPO_PATH)
+    r = subprocess.run(command, cwd=REPO_PATH, capture_output=True, shell=False, check=False)
 
     if r.returncode == 0:
         info_message(friendly_name + "[ OK ]")

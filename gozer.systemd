@@ -1,0 +1,12 @@
+[Unit]
+After=network.target
+Description=GozerBuild Server
+
+[Service]
+ExecStart=/home/photonvision/gitwork/Gozer/gozer.sh
+WorkingDirectory=/home/photonvision/gitwork/Gozer
+Restart=always
+User=photonvision
+Group=photonvision
+[Install]
+WantedBy=default.target
