@@ -23,6 +23,21 @@ git pull --all
 ./gradlew --offline build
 ```
 
+ * set up the systemd service ( ubuntu 22 instructions):
+ ```
+ sudo cp gozer.systemd /etc/systemd/system/gozer.service
+ sudo systemctl daemon-reload
+ sudo systemctl enable gozer
+ sudo systemctl start gozer
+ ```
+ 
+ If it doesnt work, view the logs like this:
+ ```sudo journalctl -r -u gozer.service
+     
+ 
+# Troublehsooting
+Here are commands that will help
+
 # Future Improvements
 * continuously check for rio and gitea, and dont allow build when not there
 * also show a status so we can see which is connected easily
