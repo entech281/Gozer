@@ -3,95 +3,150 @@ import asyncio
 import configparser
 import os.path
 import logging
+from dataclasses import dataclass
 
 log_pane = None
 REPO_PATH=None
-CONFIG_FILE= "gozer.ini"
+BRANCH_LIST=[]
+DEBUG_ON=True
+ROBORIO_IP="10.2.81.2"
+GITEA_IP="10.2.81.10"
 
+CONFIG_FILE= os.path.abspath(os.path.join(".","gozer.ini"))
+print("Using config file path:",CONFIG_FILE)
 config=configparser.ConfigParser()
 config.read(CONFIG_FILE)
 path_to_try=config['DEFAULT']['repo_path']
 
 if not path_to_try:
-    raise ValueError("Can't find gozer.ini.sample. expecting it alongside the source in the git project")
+    raise ValueError("Can't find gozer.ini. expecting it alongside the source in the git project")
 
 if not os.path.exists(path_to_try):
-    raise ValueError("Path '{s}' Does not appear to be valid in gozer.ini.sample".format(s=path_to_try))
+    raise ValueError("Repo Path '{s}' Does not appear to be valid in gozer.ini".format(s=path_to_try))
 
 REPO_PATH = path_to_try
 DEPLOY_ENABLED = (config['DEFAULT']['enable_deploy'].lower() in ['true', '1', 't', 'y', 'yes'])
 
+print("RepositoryPath=",REPO_PATH)
+@dataclass
+class RunResult:
+    success: bool
+    message: str
+    hash: str
+
 logging.info("Repository Path: ", REPO_PATH)
 logging.info("Deploys Enabled:", DEPLOY_ENABLED)
-
 
 def set_log_pane(d):
    global log_pane
    log_pane = d
 
-def list_branches() -> list:
-    branch_list_result=subprocess.run('git branch -l --format "%(refname)"', cwd=REPO_PATH, capture_output=True,shell=True,check=False)
-    if branch_list_result.returncode == 0:
-        print("Failed! return code =",branch_list_result.returncode)
-        bl = branch_list_result.stdout.decode().split()
-        bl_without_stuff = []
-        for b in bl:
-            v = b.replace('refs/heads/','')
-            bl_without_stuff.append(v)
-        return bl_without_stuff
-    else:
-        print("Failed! return code =", branch_list_result.returncode)
-        return []
+def info_message(message):
+    if log_pane is not None:
+       log_pane.push(message)
+    logging.info(message)
 
-async def run_deploy() -> bool:
-    log_pane.push("Running Gradle Build...")
-    await run_command('gradlew build --offline')
-    logging.info("Running Gradle Build")
-    if DEPLOY_ENABLED:
-        log_pane.push("Running Gradle Deploy...")
-        successful_deploy = await run_command('gradlew deploy')
-    else:
-        successful_deploy = False
-        log_pane.push("Not Deploying: Deploys are disabled")
+def debug_message(message):
+    if DEBUG_ON and log_pane is not None:
+        log_pane.push('[DEBUG] ' + message)
+    logging.debug(message)
 
-    logging.info("Deploy Success:")
-    return successful_deploy
-
-def run_checkout(ref: str) -> str:
-    log_pane.push("Pulling From Remote ".format(ref=ref))
-    logging.info("Pulling from remote...")
-    fetch_result = subprocess.run('git fetch --all', cwd=REPO_PATH, capture_output=True, shell=True,check=False)
-    if fetch_result.returncode != 0:
-        log_pane.push(fetch_result.stderr.decode())
-        return
-    else:
-        log_pane.push(fetch_result.stdout.decode())
-
-    logging.info("Refreshing Branches...")
-    log_pane.push("Refreshing Branches...".format(ref=ref))
+def update_branches():
+    global BRANCH_LIST
     BRANCH_LIST = list_branches()
+    print("Loaded Branches,",BRANCH_LIST)
 
-    logging.info("Checking out ref '{ref}'".format(ref=ref))
-    log_pane.push("Checking out ref '{ref}'".format(ref=ref))
-    checkout_result=subprocess.run(['git','checkout', '-f', ref], cwd=REPO_PATH, capture_output=True,shell=True,check=False)
-    git_hash=None
-    if checkout_result.returncode == 0:
-        logging.info("Running git rev-parse --short HEAD")
-        revparse = subprocess.run('git rev-parse --short HEAD', cwd=REPO_PATH, capture_output=True)
-        git_hash = revparse.stdout.decode()
+def list_branches() -> list:
+    r = _short_command("Listing Branches",["git","branch","-l","--format","%(refname)"])
+    if r.returncode !=  0:
+        logging.error("Could not list branches! %s" % str(r))
+        raise ValueError("Cant List Branches!")
 
-        log_pane.push("Done '{ref}'=={git_hash}".format(ref=ref, git_hash=git_hash))
+    bl = r.stdout.decode().split()
+    bl_without_stuff = []
+    for b in bl:
+       v = b.replace('refs/heads/','')
+       bl_without_stuff.append(v)
+    return bl_without_stuff
+
+
+async def run_deploy(ref:str) -> RunResult:
+
+    def gradle_command(command)-> str:
+        return  os.path.join(".", "gradlew --offline ")+ command
+
+    def ping_command(ip_addr:str) -> list:
+        return ["ping","-c","2","-W","1",ip_addr ]
+
+
+    #r = _short_command("Check For Gitea ", ping_command(GITEA_IP) )
+    #if r.returncode != 0:
+    #    return RunResult(success=False,message="Could not find Gitea. Is the programmer field kit connected?",hash="<none>")
+
+    r = _short_command("Fetch Remote", ['git','fetch'])
+    if r.returncode != 0:
+        return RunResult(success=False,message="Couldnt Pull from Gitea. Is the repo cloned right?",hash="<none>" )
+
+    update_branches()
+
+    r = _short_command("Checking out ref {ref}".format(ref=ref), ['git','checkout','-f',ref])
+    if r.returncode != 0:
+        return RunResult(success=False,message="Couldnt check out that ref. Is it valid??" ,hash="<none>")
+
+    r = _short_command(("Getting ref for this branch"),['git','rev-parse','--short','HEAD'])
+    if r.returncode != 0:
+        return RunResult(success=False,message="Inexplicably, couldnt compute hash for this ref?" ,hash="<none>")
     else:
-        log_pane.push("ERROR: {error}".format(error=checkout_result.stderr.decode()))
-    return git_hash
+        git_hash = r.stdout.decode()
+        debug_message("'{ref}'=={git_hash}".format(ref=ref, git_hash=git_hash))
 
-async def run_command(command: str) -> bool:
-    """Run a command in the background and display the output in the pre-created dialog."""
-    logging.info("running command {s}".format(s=command))
+    info_message("Running Gradle Build...")
+    successful_build = await _run_long_command(gradle_command('build'))
+
+    #if not successful_build:
+    #    return RunResult(success=False,message="Gradle Build failed. Need a programmer!",hash=git_hash)
+
+    if DEPLOY_ENABLED:
+        info_message("Running Gradle Deploy...")
+
+        r = _short_command("Check For Roborio ", ping_command(ROBORIO_IP) )
+        if r.returncode != 0:
+            return RunResult(success=False,message="Could not find RoboRio. Are we plugged into the robot?",hash="<none>")
+
+        successful_deploy = await _run_long_command(gradle_command('deploy'))
+        if successful_deploy:
+            return RunResult(success=True,message="Successfully deployed ref {ref}".format(ref=ref),hash=git_hash)
+        else:
+            return RunResult(success=False, message="Error deploying ref {ref}".format(ref=ref),hash=git_hash)
+    else:
+        info_message("Not Deploying: Deploys are disabled")
+        return RunResult(success=True,message="Built, but did not deploy ref {ref}".format(ref=ref),hash=git_hash)
+
+
+def _short_command(friendly_name: str, command: list) -> subprocess.CompletedProcess:
+    "Runs a command and returns is output in a single shot. used for quick commands"
+
+    debug_message("Running command: '{c}'".format(c=str(command)))
+    print("Workding directory for command is",REPO_PATH)
+    r = subprocess.run(command, cwd=REPO_PATH, capture_output=True, shell=False, check=False)
+
+    if r.returncode == 0:
+        info_message(friendly_name + "[ OK ]")
+
+    else:
+        info_message(friendly_name + "[ FAILED ]")
+        info_message("ERROR: {s}".format(s=str(r)))
+
+    return r
+
+
+async def _run_long_command(command: str) -> bool:
+
+    debug_message("running command {s}".format(s=command))
     process = await asyncio.create_subprocess_shell(command,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        cwd=REPO_PATH
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,shell=True,cwd=REPO_PATH
     )
+
     # NOTE we need to read the output in chunks, otherwise the process will block
     output = ''
     total_output=''
@@ -102,8 +157,10 @@ async def run_command(command: str) -> bool:
         output = new.decode()
         total_output += output
         # NOTE the content of the markdown element is replaced every time we have new output
-        log_pane.push(output)
-    logging.info("command completed.")
-    return total_output.find("FAILED") < 0
+        info_message(output)
 
-BRANCH_LIST=list_branches()
+    debug_message("command completed. return code={d}".format(d=process.returncode))
+    return process.returncode == 0 and total_output.find("FAILED") < 0
+
+
+update_branches()
